@@ -1,17 +1,34 @@
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 
 # Set parent directory path
-parent_path=$(cd "$(dirname "${BASH_SOURCE[0]}")"; pwd -P)
+parent_path=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 # Initialize variables from .env file
 source "$parent_path"/.env
 
-backup_folder="config_backup"
-backup_path="$HOME/$backup_folder"
+if [ -z "$search_base_dir" ]; then
+    search_base_dir="$HOME"
+fi
+
+if [ -z "$base_backup_path" ]; then
+    base_backup_path="$HOME"
+fi
+
+if [ -z "$backup_folder" ]; then
+    backup_folder="config_backup"
+fi
+backup_path="$base_backup_path/$backup_folder"
+
+local_sha=$(git -C "$parent_path" rev-parse HEAD)
+remote_branch_ref=$(git -C "$parent_path" rev-parse --abbrev-ref @{u} | sed 's/\// /g')
+remote_sha=$(git -C "$parent_path" ls-remote $remote_branch_ref | cut -f1)
 
 # Check for updates
-[ $(git -C "$parent_path" rev-parse HEAD) = $(git -C "$parent_path" ls-remote $(git -C "$parent_path" rev-parse --abbrev-ref @{u} | \
-sed 's/\// /g') | cut -f1) ] && echo -e "Klipper-backup is up to date\n" || echo -e "NEW klipper-backup version available!\n"
+if [ "$local_sha" = "$remote_sha" ]; then
+    echo -e "Klipper-backup is up to date\n"
+else
+    echo -e "NEW klipper-backup version available!\n"   
+fi
 
 # Check if backup folder exists, create one if it does not
 if [ ! -d "$backup_path" ]; then
@@ -33,7 +50,7 @@ if [ ! -d ".git" ]; then
 fi
 
 # Check if username is defined in .env
-if [[ "$commit_username" != "" ]]; then
+if [ -n "$commit_username" ]; then
     git config user.name "$commit_username"
 else
     git config user.name "$(whoami)"
@@ -41,7 +58,7 @@ else
 fi
 
 # Check if email is defined in .env
-if [[ "$commit_email" != "" ]]; then
+if [ -n "$commit_email" ]; then
     git config user.email "$commit_email"
 else
     git config user.email "$(whoami)@$(hostname --long)-$(git rev-parse --short HEAD)"
@@ -68,19 +85,19 @@ if git ls-remote --exit-code --heads origin $branch_name > /dev/null 2>&1; then
     find "$backup_path" -maxdepth 1 -mindepth 1 ! -name '.git' -exec rm -rf {} \;
 fi
 
-cd "$HOME"
+cd "$search_base_dir"
 while IFS= read -r path; do
     # Check if path is a directory or not a file (needed for /* checking as /* treats the path as not a directory)
-    if [[ -d "$HOME/$path" || ! -f "$HOME/$path" ]]; then
+    if [ -d "$search_base_dir/$path" ] || [ ! -f "$search_base_dir/$path" ]; then
         # Check if path does not end in /* or /
         if [[ ! "$path" =~ /\*$ && ! "$path" =~ /$ ]]; then
             path="$path/*"
-            elif [[ ! "$path" =~ \$ && ! "$path" =~ /\*$ ]]; then
+        elif [[ ! "$path" =~ \$ && ! "$path" =~ /\*$ ]]; then
             path="$path*"
         fi
     fi
     # Check if path contains files
-    if compgen -G "$HOME/$path" > /dev/null; then
+    if compgen -G "$search_base_dir/$path" > /dev/null; then
         # Iterate over every file in the path
         for file in $path; do
             # Check if it's a symbolic link
@@ -105,7 +122,7 @@ echo -e "# klipper-backup 💾 \nKlipper backup script for manual or automated G
 timezone=$(timedatectl | grep "Time zone" | awk '{print $3}')
 if [ -n "$1" ]; then
     commit_message="$@"
-    elif [[ "$timezone" == *"America"* ]]; then
+elif [[ "$timezone" == *"America"* ]]; then
     commit_message="New backup from $(date +"%m-%d-%y")"
 else
     commit_message="New backup from $(date +"%d-%m-%y")"
